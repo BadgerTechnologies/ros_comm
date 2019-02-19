@@ -46,10 +46,12 @@ void TimeTranslator::setTimeScale(double const& s) {
 }
 
 void TimeTranslator::setRealStartTime(ros::Time const& t) {
+    // real_start is the beginning of the bag file time.
     real_start_ = t;
 }
 
 void TimeTranslator::setTranslatedStartTime(ros::Time const& t) {
+    // translated_start is the wall-clock time at which we started translating
     translated_start_ = t;
 }
 
@@ -57,6 +59,7 @@ void TimeTranslator::shift(ros::Duration const& d) {
     translated_start_ += d;
 }
 
+// Translate from simulated (ROS) time to wall-clock time.
 ros::Time TimeTranslator::translate(ros::Time const& t) {
     return translated_start_ + (t - real_start_) * (1.0 / time_scale_);
 }

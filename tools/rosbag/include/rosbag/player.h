@@ -116,6 +116,7 @@ public:
 
     /*! Set the horizon that the clock will run to */
     void setHorizon(const ros::Time& horizon);
+    ros::Time const& getHorizon() const;
 
     /*! Set the horizon that the clock will run to */
     void setWCHorizon(const ros::WallTime& horizon);
@@ -190,6 +191,7 @@ private:
     void processPause(const bool paused, ros::WallTime &horizon);
 
     void waitForSubscribers() const;
+    void setTimeScale(double newTimeScale, ros::WallTime &horizon);
 
 private:
     typedef std::map<std::string, ros::Publisher> PublisherMap;

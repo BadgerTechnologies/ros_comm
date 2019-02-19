@@ -473,10 +473,13 @@ void Player::doPublish(MessageInstance const& m) {
             paused_time_ = ros::WallTime::now();
         }
     }
-
+    static double timeScale = 1.0;
+    //printf("RLH: Entering loop (%d, %d, %d)\n", (int)paused_, (int)delayed_, (int)(!time_publisher_.horizonReached()));
     while ((paused_ || delayed_ || !time_publisher_.horizonReached()) && node_handle_.ok())
     {
         bool charsleftorpaused = true;
+        //printf("RLH: Entering loop\n");
+        //printf("RLH: Time was %d (%d)\n", time.sec, time.nsec);
         while (charsleftorpaused && node_handle_.ok())
         {
             ros::spinOnce();
@@ -508,6 +511,26 @@ void Player::doPublish(MessageInstance const& m) {
                     printTime();
                     return;
                 }
+                break;
+            case '+':
+                if (timeScale >= 1.0)
+                    timeScale += 1.0;
+                else
+                    timeScale += 0.1;
+                if (timeScale > 10.0)
+                    timeScale = 10.0;
+                printf("\nRLH+: TS set to: %f\n", timeScale);
+                setTimeScale(timeScale, horizon);
+                break;
+            case '-':
+                if (timeScale > 1.0)
+                    timeScale -= 1.0;
+                else
+                    timeScale -= 0.1;
+                if (timeScale < 0.1)
+                    timeScale = 0.1;
+                printf("\nRLH-: TS set to: %f\n", timeScale);
+                setTimeScale(timeScale, horizon);
                 break;
             case 't':
                 pause_for_topics_ = !pause_for_topics_;
@@ -550,7 +573,23 @@ void Player::doPublish(MessageInstance const& m) {
     pub_iter->second.publish(m);
 }
 
+void Player::setTimeScale(double newTimeScale, ros::WallTime &horizon)
+{
+    time_translator_.setTimeScale(newTimeScale);
+    ros::WallTime now_wt = ros::WallTime::now();
+    //printf("RLH: Now is %d (%d)\n", now_wt.sec, now_wt.nsec);
+    time_translator_.setTranslatedStartTime(ros::Time(now_wt.sec, now_wt.nsec));
+    time_translator_.setRealStartTime(time_publisher_.getTime());
+    time_publisher_.setTimeScale(newTimeScale);
+    //printf("RLH: RT Horizon was %d (%d)\n", time_publisher_.getHorizon().sec, time_publisher_.getHorizon().nsec);
+    //printf("RLH: WC Horizon was %d (%d)\n", horizon.sec, horizon.nsec);
+    ros::Time translated = time_translator_.translate(time_publisher_.getHorizon());
+    horizon.sec = translated.sec;
+    horizon.nsec = translated.nsec;
+    //printf("RLH: New WC Horizon is %d (%d)\n", translated.sec, translated.nsec);
+    time_publisher_.setWCHorizon(horizon);
 
+}
 void Player::doKeepAlive() {
     //Keep pushing ourself out in 10-sec increments (avoids fancy math dealing with the end of time)
     ros::Time const& time = time_publisher_.getTime() + ros::Duration(10.0);
@@ -727,6 +766,11 @@ void TimePublisher::setTimeScale(double time_scale)
 void TimePublisher::setHorizon(const ros::Time& horizon)
 {
     horizon_ = horizon;
+}
+
+ros::Time const& TimePublisher::getHorizon() const
+{
+    return horizon_;
 }
 
 void TimePublisher::setWCHorizon(const ros::WallTime& horizon)
