@@ -57,7 +57,7 @@ void TimeManager::setPublishFrequency(double publish_frequency)
     wall_step_.fromSec(1.0 / publish_frequency);
 }
     
-void TimeManager::setBagTimeScale(double scale)
+void TimeManager::setBagTimeHorizon(ros::Time limit_bag_time)
 {
 }
 
@@ -80,7 +80,7 @@ void TimeManager::pauseBagTime(bool pause)
   }
 }
 
-void TimePublisher::runClock(const ros::WallDuration& duration, ros::Time limit_bag_time)
+void TimePublisher::runClock(const ros::WallDuration& duration)
 {
     if (do_publish_)
     {
@@ -141,7 +141,7 @@ void TimePublisher::runClock(const ros::WallDuration& duration, ros::Time limit_
     }
 }
 
-void TimePublisher::stepClock(ros::Time const& bag_time)
+void TimePublisher::stepClock(ros::Time const& bag_time, bool shift)
 {
     current_ = bag_time;
     if (do_publish_)
@@ -153,7 +153,8 @@ void TimePublisher::stepClock(ros::Time const& bag_time)
         ros::WallTime t = ros::WallTime::now();
         next_pub_ = t + wall_step_;
     }
-    #if 0
+    if (shift)
+    {
     // shift translator?
                     ros::WallDuration shift = ros::WallTime::now() - horizon ;
                     paused_time_ = ros::WallTime::now();
@@ -162,7 +163,7 @@ void TimePublisher::stepClock(ros::Time const& bag_time)
 
                     horizon += shift;
                     time_publisher_.setWCHorizon(horizon);
-                    #endif
+    }
 }
 
 void TimePublisher::runStalledClock(const ros::WallDuration& duration)
