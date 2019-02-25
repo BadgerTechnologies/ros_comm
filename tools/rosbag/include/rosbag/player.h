@@ -227,7 +227,7 @@ private:
     fd_set  stdin_fdset_;
 #endif
     int     maxfd_;
-
+    std::unique_ptr<TimeManager> time_manager_;
     TimeTranslator time_translator_;
     TimePublisher time_publisher_;
 

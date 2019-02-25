@@ -245,27 +245,18 @@ void Player::publish() {
 
     while (true) {
         // Set up our time_translator and publishers
-
-        time_translator_.setTimeScale(options_.time_scale);
+        time_manager_ = new TimeManager(view.getBeginTime(), options_.time_scale);
 
         start_time_ = view.begin()->getTime();
-        time_translator_.setRealStartTime(start_time_);
         bag_length_ = view.getEndTime() - view.getBeginTime();
 
         // Set the last rate control to now, so the program doesn't start delayed.
         last_rate_control_ = start_time_;
 
-        time_publisher_.setTime(start_time_);
-
-        ros::WallTime now_wt = ros::WallTime::now();
-        time_translator_.setTranslatedStartTime(ros::Time(now_wt.sec, now_wt.nsec));
-
-
-        time_publisher_.setTimeScale(options_.time_scale);
         if (options_.bag_time)
-            time_publisher_.setPublishFrequency(options_.bag_time_frequency);
+            time_manager_.setPublishFrequency(options_.bag_time_frequency);
         else
-            time_publisher_.setPublishFrequency(-1.0);
+            time_manager_.setPublishFrequency(-1.0);
 
         paused_time_ = now_wt;
 
@@ -415,12 +406,6 @@ void Player::doPublish(MessageInstance const& m) {
     ros::Time const& time = m.getTime();
     string callerid       = m.getCallerId();
     
-    ros::Time translated = time_translator_.translate(time);
-    ros::WallTime horizon = ros::WallTime(translated.sec, translated.nsec);
-
-    time_publisher_.setHorizon(time);
-    time_publisher_.setWCHorizon(horizon);
-
     string callerid_topic = callerid + topic;
 
     map<string, ros::Publisher>::iterator pub_iter = publishers_.find(callerid_topic);
@@ -431,21 +416,16 @@ void Player::doPublish(MessageInstance const& m) {
 
     // If immediate specified, play immediately
     if (options_.at_once) {
-        time_publisher_.stepClock();
+        time_publisher_.stepClock(time);
         pub_iter->second.publish(m);
         printTime();
         return;
     }
 
     // If skip_empty is specified, skip this region and shift.
-    if (time - time_publisher_.getTime() > options_.skip_empty)
+    if (time - time_manager_.getBagTime() > options_.skip_empty)
     {
-      time_publisher_.stepClock();
-
-      ros::WallDuration shift = ros::WallTime::now() - horizon ;
-      time_translator_.shift(ros::Duration(shift.sec, shift.nsec));
-      horizon += shift;
-      time_publisher_.setWCHorizon(horizon);
+      time_manager_.stepClock(time);
       (pub_iter->second).publish(m);
       printTime();
       return;
@@ -468,13 +448,13 @@ void Player::doPublish(MessageInstance const& m) {
     // Check if the rate control topic has posted recently enough to continue, or if a delay is needed.
     // Delayed is separated from paused to allow more verbose printing.
     if (rate_control_sub_ != NULL) {
-        if ((time_publisher_.getTime() - last_rate_control_).toSec() > options_.rate_control_max_delay) {
+        if ((time_manager_.getBagTime() - last_rate_control_).toSec() > options_.rate_control_max_delay) {
             delayed_ = true;
             paused_time_ = ros::WallTime::now();
         }
     }
 
-    while ((paused_ || delayed_ || !time_publisher_.horizonReached()) && node_handle_.ok())
+    while ((paused_ || delayed_ || (time_manager_.getBagTime() < time)) && node_handle_.ok())
     {
         bool charsleftorpaused = true;
         while (charsleftorpaused && node_handle_.ok())
@@ -483,28 +463,19 @@ void Player::doPublish(MessageInstance const& m) {
 
             if (pause_change_requested_)
             {
-              processPause(requested_pause_state_, horizon);
-              pause_change_requested_ = false;
+                time_manager_.pause(requested_pause_state_);
+                pause_change_requested_ = false;
             }
 
             switch (readCharFromStdin()){
             case ' ':
-                processPause(!paused_, horizon);
+                paused_ = !paused_
+                time_manager_.pause(paused_);
                 break;
             case 's':
                 if (paused_) {
-                    time_publisher_.stepClock();
-
-                    ros::WallDuration shift = ros::WallTime::now() - horizon ;
-                    paused_time_ = ros::WallTime::now();
-
-                    time_translator_.shift(ros::Duration(shift.sec, shift.nsec));
-
-                    horizon += shift;
-                    time_publisher_.setWCHorizon(horizon);
-            
+                    time_manager_.stepClock(time);
                     (pub_iter->second).publish(m);
-
                     printTime();
                     return;
                 }
@@ -516,13 +487,13 @@ void Player::doPublish(MessageInstance const& m) {
                 if (paused_)
                 {
                     printTime();
-                    time_publisher_.runStalledClock(ros::WallDuration(.1));
+                    time_manager_.runStalledClock(ros::WallDuration(.1));
                     ros::spinOnce();
                 }
                 else if (delayed_)
                 {
                     printTime();
-                    time_publisher_.runStalledClock(ros::WallDuration(.1));
+                    time_manager_.runStalledClock(ros::WallDuration(.1));
                     ros::spinOnce();
                     // You need to check the rate here too.
                     if(rate_control_sub_ == NULL || (time_publisher_.getTime() - last_rate_control_).toSec() <= options_.rate_control_max_delay) {
