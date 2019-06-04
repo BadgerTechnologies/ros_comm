@@ -392,7 +392,6 @@ void Player::processPause(const bool paused, ros::WallTime &horizon)
     time_translator_.shift(ros::Duration(shift.sec, shift.nsec));
 
     horizon += shift;
-    time_publisher_.setWCHorizon(horizon);
   }
 }
 
@@ -419,7 +418,6 @@ void Player::doPublish(MessageInstance const& m) {
     ros::WallTime horizon = ros::WallTime(translated.sec, translated.nsec);
 
     time_publisher_.setHorizon(time);
-    time_publisher_.setWCHorizon(horizon);
 
     string callerid_topic = callerid + topic;
 
@@ -445,7 +443,6 @@ void Player::doPublish(MessageInstance const& m) {
       ros::WallDuration shift = ros::WallTime::now() - horizon ;
       time_translator_.shift(ros::Duration(shift.sec, shift.nsec));
       horizon += shift;
-      time_publisher_.setWCHorizon(horizon);
       (pub_iter->second).publish(m);
       printTime();
       return;
@@ -474,7 +471,7 @@ void Player::doPublish(MessageInstance const& m) {
         }
     }
 
-    while ((paused_ || delayed_ || !time_publisher_.horizonReached()) && node_handle_.ok())
+    while ((paused_ || delayed_ || time_publisher_.getTime() < time) && node_handle_.ok())
     {
         bool charsleftorpaused = true;
         while (charsleftorpaused && node_handle_.ok())
@@ -501,8 +498,7 @@ void Player::doPublish(MessageInstance const& m) {
                     time_translator_.shift(ros::Duration(shift.sec, shift.nsec));
 
                     horizon += shift;
-                    time_publisher_.setWCHorizon(horizon);
-            
+
                     (pub_iter->second).publish(m);
 
                     printTime();
@@ -534,7 +530,6 @@ void Player::doPublish(MessageInstance const& m) {
                         time_translator_.shift(ros::Duration(shift.sec, shift.nsec));
 
                         horizon += shift;
-                        time_publisher_.setWCHorizon(horizon);
                     }
                 }
                 else
@@ -543,7 +538,7 @@ void Player::doPublish(MessageInstance const& m) {
         }
 
         printTime();
-        time_publisher_.runClock(ros::WallDuration(.1));
+        time_publisher_.runClock(ros::WallDuration(.1), horizon);
         ros::spinOnce();
     }
 
@@ -559,7 +554,6 @@ void Player::doKeepAlive() {
     ros::WallTime horizon = ros::WallTime(translated.sec, translated.nsec);
 
     time_publisher_.setHorizon(time);
-    time_publisher_.setWCHorizon(horizon);
 
     if (options_.at_once) {
         return;
@@ -568,7 +562,7 @@ void Player::doKeepAlive() {
     // If we're done and just staying alive, don't watch the rate control topic. We aren't publishing anyway.
     delayed_ = false;
 
-    while ((paused_ || !time_publisher_.horizonReached()) && node_handle_.ok())
+    while ((paused_ || time_publisher_.getTime() < time) && node_handle_.ok())
     {
         bool charsleftorpaused = true;
         while (charsleftorpaused && node_handle_.ok())
@@ -588,7 +582,6 @@ void Player::doKeepAlive() {
                     time_translator_.shift(ros::Duration(shift.sec, shift.nsec));
 
                     horizon += shift;
-                    time_publisher_.setWCHorizon(horizon);
                 }
                 break;
             case EOF:
@@ -604,7 +597,7 @@ void Player::doKeepAlive() {
         }
 
         printTime();
-        time_publisher_.runClock(ros::WallDuration(.1));
+        time_publisher_.runClock(ros::WallDuration(.1), horizon);
         ros::spinOnce();
     }
 }
@@ -729,11 +722,6 @@ void TimePublisher::setHorizon(const ros::Time& horizon)
     horizon_ = horizon;
 }
 
-void TimePublisher::setWCHorizon(const ros::WallTime& horizon)
-{
-  wc_horizon_ = horizon;
-}
-
 void TimePublisher::setTime(const ros::Time& time)
 {
     current_ = time;
@@ -744,7 +732,7 @@ ros::Time const& TimePublisher::getTime() const
     return current_;
 }
 
-void TimePublisher::runClock(const ros::WallDuration& duration)
+void TimePublisher::runClock(const ros::WallDuration& duration, const ros::WallTime& wc_horizon)
 {
     if (do_publish_)
     {
@@ -752,10 +740,9 @@ void TimePublisher::runClock(const ros::WallDuration& duration)
 
         ros::WallTime t = ros::WallTime::now();
         ros::WallTime done = t + duration;
-
-        while (t < done && t < wc_horizon_)
+        while (t < done && t < wc_horizon)
         {
-            ros::WallDuration leftHorizonWC = wc_horizon_ - t;
+            ros::WallDuration leftHorizonWC = wc_horizon - t;
 
             ros::Duration d(leftHorizonWC.sec, leftHorizonWC.nsec);
             d *= time_scale_;
@@ -773,8 +760,8 @@ void TimePublisher::runClock(const ros::WallDuration& duration)
             }
 
             ros::WallTime target = done;
-            if (target > wc_horizon_)
-              target = wc_horizon_;
+            if (target > wc_horizon)
+              target = wc_horizon;
             if (target > next_pub_)
               target = next_pub_;
 
@@ -786,7 +773,7 @@ void TimePublisher::runClock(const ros::WallDuration& duration)
 
         ros::WallTime t = ros::WallTime::now();
 
-        ros::WallDuration leftHorizonWC = wc_horizon_ - t;
+        ros::WallDuration leftHorizonWC = wc_horizon - t;
 
         ros::Duration d(leftHorizonWC.sec, leftHorizonWC.nsec);
         d *= time_scale_;
@@ -798,8 +785,8 @@ void TimePublisher::runClock(const ros::WallDuration& duration)
 
         ros::WallTime target = ros::WallTime::now() + duration;
 
-        if (target > wc_horizon_)
-            target = wc_horizon_;
+        if (target > wc_horizon)
+            target = wc_horizon;
 
         ros::WallTime::sleepUntil(target);
     }
@@ -853,11 +840,6 @@ void TimePublisher::runStalledClock(const ros::WallDuration& duration)
     } else {
         duration.sleep();
     }
-}
-
-bool TimePublisher::horizonReached()
-{
-  return ros::WallTime::now() > wc_horizon_;
 }
 
 } // namespace rosbag
