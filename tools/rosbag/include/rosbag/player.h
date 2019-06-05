@@ -112,6 +112,7 @@ public:
     void setPublishFrequency(double publish_frequency);
     
     void setTimeScale(double time_scale);
+    double getTimeScale();
 
     /*! Set the current time */
     void setTime(const ros::Time& time);
@@ -131,6 +132,12 @@ public:
     //! Step the clock to the horizon
     void stepClock(const ros::Time& horizon);
 
+    //! Pause (or unpause) the ROS clock (will continue publishing)
+    void pauseClock(bool pause);
+
+    //! Get the pause-state of the ROS clock.
+    bool isPaused();
+
 private:
     bool do_publish_;
     
@@ -143,6 +150,9 @@ private:
     ros::WallDuration wall_step_;
     
     ros::WallTime next_pub_;
+
+    ros::WallTime last_run_wall_time_;
+    bool is_paused_;
 
     ros::Time current_;
 
@@ -180,8 +190,6 @@ private:
 
     bool pauseCallback(std_srvs::SetBool::Request &req, std_srvs::SetBool::Response &res);
 
-    void processPause(const bool paused);
-
     void waitForSubscribers() const;
 
 private:
@@ -193,7 +201,6 @@ private:
 
     ros::ServiceServer pause_service_;
 
-    bool paused_;
     bool delayed_;
 
     bool pause_for_topics_;
@@ -204,8 +211,6 @@ private:
 
     ros::Subscriber rate_control_sub_;
     ros::Time last_rate_control_;
-
-    ros::WallTime paused_time_;
 
     std::vector<boost::shared_ptr<Bag> >  bags_;
     PublisherMap publishers_;
