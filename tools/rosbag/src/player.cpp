@@ -244,12 +244,9 @@ void Player::publish() {
     }
 
     while (true) {
-        // Set up our time_translator and publishers
-
-        time_translator_.setTimeScale(options_.time_scale);
+        // Set up our time publishers
 
         start_time_ = view.begin()->getTime();
-        time_translator_.setRealStartTime(start_time_);
         bag_length_ = view.getEndTime() - view.getBeginTime();
 
         // Set the last rate control to now, so the program doesn't start delayed.
@@ -258,8 +255,6 @@ void Player::publish() {
         time_publisher_.setTime(start_time_);
 
         ros::WallTime now_wt = ros::WallTime::now();
-        time_translator_.setTranslatedStartTime(ros::Time(now_wt.sec, now_wt.nsec));
-
 
         time_publisher_.setTimeScale(options_.time_scale);
         if (options_.bag_time)
@@ -375,7 +370,7 @@ bool Player::pauseCallback(std_srvs::SetBool::Request &req, std_srvs::SetBool::R
   return true;
 }
 
-void Player::processPause(const bool paused, ros::WallTime &horizon)
+void Player::processPause(const bool paused)
 {
   paused_ = paused;
 
@@ -388,10 +383,6 @@ void Player::processPause(const bool paused, ros::WallTime &horizon)
     // Make sure time doesn't shift after leaving pause.
     ros::WallDuration shift = ros::WallTime::now() - paused_time_;
     paused_time_ = ros::WallTime::now();
-
-    time_translator_.shift(ros::Duration(shift.sec, shift.nsec));
-
-    horizon += shift;
   }
 }
 
@@ -414,11 +405,6 @@ void Player::doPublish(MessageInstance const& m) {
     ros::Time const& time = m.getTime();
     string callerid       = m.getCallerId();
     
-    ros::Time translated = time_translator_.translate(time);
-    ros::WallTime horizon = ros::WallTime(translated.sec, translated.nsec);
-
-    time_publisher_.setHorizon(time);
-
     string callerid_topic = callerid + topic;
 
     map<string, ros::Publisher>::iterator pub_iter = publishers_.find(callerid_topic);
@@ -429,7 +415,7 @@ void Player::doPublish(MessageInstance const& m) {
 
     // If immediate specified, play immediately
     if (options_.at_once) {
-        time_publisher_.stepClock();
+        time_publisher_.stepClock(time);
         pub_iter->second.publish(m);
         printTime();
         return;
@@ -438,11 +424,8 @@ void Player::doPublish(MessageInstance const& m) {
     // If skip_empty is specified, skip this region and shift.
     if (time - time_publisher_.getTime() > options_.skip_empty)
     {
-      time_publisher_.stepClock();
+      time_publisher_.stepClock(time);
 
-      ros::WallDuration shift = ros::WallTime::now() - horizon ;
-      time_translator_.shift(ros::Duration(shift.sec, shift.nsec));
-      horizon += shift;
       (pub_iter->second).publish(m);
       printTime();
       return;
@@ -480,24 +463,19 @@ void Player::doPublish(MessageInstance const& m) {
 
             if (pause_change_requested_)
             {
-              processPause(requested_pause_state_, horizon);
+              processPause(requested_pause_state_);
               pause_change_requested_ = false;
             }
 
             switch (readCharFromStdin()){
             case ' ':
-                processPause(!paused_, horizon);
+                processPause(!paused_);
                 break;
             case 's':
                 if (paused_) {
-                    time_publisher_.stepClock();
+                    time_publisher_.stepClock(time);
 
-                    ros::WallDuration shift = ros::WallTime::now() - horizon ;
                     paused_time_ = ros::WallTime::now();
-
-                    time_translator_.shift(ros::Duration(shift.sec, shift.nsec));
-
-                    horizon += shift;
 
                     (pub_iter->second).publish(m);
 
@@ -526,21 +504,17 @@ void Player::doPublish(MessageInstance const& m) {
                         // Make sure time doesn't shift after leaving delay.
                         ros::WallDuration shift = ros::WallTime::now() - paused_time_;
                         paused_time_ = ros::WallTime::now();
-         
-                        time_translator_.shift(ros::Duration(shift.sec, shift.nsec));
-
-                        horizon += shift;
                     }
                 }
                 else
                     charsleftorpaused = false;
-            }
-        }
+            }  // switch
+        }  // while
 
         printTime();
-        time_publisher_.runClock(ros::WallDuration(.1), horizon);
+        time_publisher_.runClock(ros::WallDuration(.1), time);
         ros::spinOnce();
-    }
+    }  // while
 
     pub_iter->second.publish(m);
 }
@@ -549,11 +523,6 @@ void Player::doPublish(MessageInstance const& m) {
 void Player::doKeepAlive() {
     //Keep pushing ourself out in 10-sec increments (avoids fancy math dealing with the end of time)
     ros::Time const& time = time_publisher_.getTime() + ros::Duration(10.0);
-
-    ros::Time translated = time_translator_.translate(time);
-    ros::WallTime horizon = ros::WallTime(translated.sec, translated.nsec);
-
-    time_publisher_.setHorizon(time);
 
     if (options_.at_once) {
         return;
@@ -578,10 +547,6 @@ void Player::doKeepAlive() {
                     // Make sure time doesn't shift after leaving pause.
                     ros::WallDuration shift = ros::WallTime::now() - paused_time_;
                     paused_time_ = ros::WallTime::now();
-         
-                    time_translator_.shift(ros::Duration(shift.sec, shift.nsec));
-
-                    horizon += shift;
                 }
                 break;
             case EOF:
@@ -597,7 +562,7 @@ void Player::doKeepAlive() {
         }
 
         printTime();
-        time_publisher_.runClock(ros::WallDuration(.1), horizon);
+        time_publisher_.runClock(ros::WallDuration(.1), time);
         ros::spinOnce();
     }
 }
@@ -717,11 +682,6 @@ void TimePublisher::setTimeScale(double time_scale)
     time_scale_ = time_scale;
 }
 
-void TimePublisher::setHorizon(const ros::Time& horizon)
-{
-    horizon_ = horizon;
-}
-
 void TimePublisher::setTime(const ros::Time& time)
 {
     current_ = time;
@@ -731,72 +691,63 @@ ros::Time const& TimePublisher::getTime() const
 {
     return current_;
 }
-
-void TimePublisher::runClock(const ros::WallDuration& duration, const ros::WallTime& wc_horizon)
+    
+void TimePublisher::runClock(const ros::WallDuration& duration, const ros::Time& horizon)
 {
+    ros::WallDuration remaining_duration = duration;
+    if (current_ + toRosDuration(remaining_duration) > horizon)
+    {
+        remaining_duration = toWallDuration(horizon - current_);
+    }
+    
     if (do_publish_)
     {
         rosgraph_msgs::Clock pub_msg;
-
-        ros::WallTime t = ros::WallTime::now();
-        ros::WallTime done = t + duration;
-        while (t < done && t < wc_horizon)
+        while (remaining_duration > ros::WallDuration(0))
         {
-            ros::WallDuration leftHorizonWC = wc_horizon - t;
-
-            ros::Duration d(leftHorizonWC.sec, leftHorizonWC.nsec);
-            d *= time_scale_;
-
-            current_ = horizon_ - d;
-
-            if (current_ >= horizon_)
-              current_ = horizon_;
-
+            ros::WallTime t = ros::WallTime::now();
             if (t >= next_pub_)
             {
                 pub_msg.clock = current_;
                 time_pub_.publish(pub_msg);
                 next_pub_ = t + wall_step_;
             }
-
-            ros::WallTime target = done;
-            if (target > wc_horizon)
-              target = wc_horizon;
-            if (target > next_pub_)
-              target = next_pub_;
-
-            ros::WallTime::sleepUntil(target);
-
-            t = ros::WallTime::now();
+            ros::WallDuration wc_duration = remaining_duration;
+            if (t + wc_duration > next_pub_)
+            {
+                wc_duration = next_pub_ - t;
+            }
+            if (wc_duration > ros::WallDuration(0))
+            {
+                ros::WallTime::sleepUntil(t + wc_duration);
+                current_ += toRosDuration(wc_duration);
+                remaining_duration -= wc_duration;
+            }
+        }
+        // Make sure we publish time regardless of what duration was requested.
+        ros::WallTime t = ros::WallTime::now();
+        if (t >= next_pub_)
+        {
+            pub_msg.clock = current_;
+            time_pub_.publish(pub_msg);
+            next_pub_ = t + wall_step_;
         }
     } else {
-
         ros::WallTime t = ros::WallTime::now();
-
-        ros::WallDuration leftHorizonWC = wc_horizon - t;
-
-        ros::Duration d(leftHorizonWC.sec, leftHorizonWC.nsec);
-        d *= time_scale_;
-
-        current_ = horizon_ - d;
-        
-        if (current_ >= horizon_)
-            current_ = horizon_;
-
-        ros::WallTime target = ros::WallTime::now() + duration;
-
-        if (target > wc_horizon)
-            target = wc_horizon;
-
-        ros::WallTime::sleepUntil(target);
+        ros::WallDuration wc_duration = duration;
+        if (wc_duration > ros::WallDuration(0))
+        {
+            ros::WallTime::sleepUntil(t + wc_duration);
+            current_ += toRosDuration(wc_duration);
+        }
     }
 }
 
-void TimePublisher::stepClock()
+void TimePublisher::stepClock(const ros::Time& horizon)
 {
     if (do_publish_)
     {
-        current_ = horizon_;
+        current_ = horizon;
 
         rosgraph_msgs::Clock pub_msg;
 
@@ -806,7 +757,7 @@ void TimePublisher::stepClock()
         ros::WallTime t = ros::WallTime::now();
         next_pub_ = t + wall_step_;
     } else {
-        current_ = horizon_;
+        current_ = horizon;
     }
 }
 
@@ -840,6 +791,16 @@ void TimePublisher::runStalledClock(const ros::WallDuration& duration)
     } else {
         duration.sleep();
     }
+}
+
+ros::Duration TimePublisher::toRosDuration(const ros::WallDuration& duration)
+{
+    return ros::Duration(duration.toSec() * time_scale_);
+}
+
+ros::WallDuration TimePublisher::toWallDuration(const ros::Duration& duration)
+{
+    return ros::WallDuration(duration.toSec() / time_scale_);
 }
 
 } // namespace rosbag
