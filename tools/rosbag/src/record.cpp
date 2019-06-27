@@ -52,6 +52,7 @@ rosbag::RecorderOptions parseOptions(int argc, char** argv) {
       ("all,a", "record all topics")
       ("regex,e", "match topics using regular expressions")
       ("exclude,x", po::value<std::string>(), "exclude topics matching regular expressions")
+      ("resub,r", po::value<std::string>(), "topics to re-subscribe to during bagfile split (regex)")
       ("quiet,q", "suppress console output")
       ("output-prefix,o", po::value<std::string>(), "prepend PREFIX to beginning of bag name")
       ("output-name,O", po::value<std::string>(), "record bagnamed NAME.bag")
@@ -100,6 +101,11 @@ rosbag::RecorderOptions parseOptions(int argc, char** argv) {
     {
       opts.do_exclude = true;
       opts.exclude_regex = vm["exclude"].as<std::string>();
+    }
+    if (vm.count("resub"))
+    {
+      opts.do_resub = true;
+      opts.resub_regex = vm["resub"].as<std::string>();
     }
     if (vm.count("quiet"))
       opts.quiet = true;
