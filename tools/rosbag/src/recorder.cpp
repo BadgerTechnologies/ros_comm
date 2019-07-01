@@ -224,17 +224,22 @@ shared_ptr<ros::Subscriber> Recorder::subscribe(string const& topic) {
         const ros::MessageEvent<topic_tools::ShapeShifter const> &> >(
             boost::bind(&Recorder::doQueue, this, _1, topic, sub, count));
     ops.transport_hints = options_.transport_hints;
-    *sub = nh.subscribe(ops);
 
-    currently_recording_.insert(topic);
-    // If we need to resub, add to re-sub tracking data
-    if(options_.do_resub && boost::regex_search(topic, options_.resub_regex)) {
-      // We only need to add the topic name to the list once
-      if (find(resub_topics_.begin(), resub_topics_.end(), topic) == resub_topics_.end())
-        resub_topics_.push_back(topic);
-      resub_subscribers_.push_back(sub);
+    if(find(currently_recording_.begin(), currently_recording_.end(), topic) == currently_recording_.end()) {
+      ROS_INFO("Subscribing to %s", topic.c_str());
+      *sub = nh.subscribe(ops);
+      currently_recording_.insert(topic);
+      num_subscribers_++;
+      // If we need to resub, add to re-sub tracking data
+      if(options_.do_resub && boost::regex_match(topic, options_.resub_regex)) {
+        // We only need to add the topic name to the list once
+        if (find(resub_topics_.begin(), resub_topics_.end(), topic) == resub_topics_.end()) {
+          resub_topics_.push_back(topic);
+          // Handles initial condition
+          resub_subscribers_.push_back(sub);
+        }
+      }
     }
-    num_subscribers_++;
 
     return sub;
 }
