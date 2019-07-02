@@ -232,7 +232,7 @@ shared_ptr<ros::Subscriber> Recorder::subscribe(string const& topic) {
       currently_recording_.insert(topic);
       num_subscribers_++;
       // If we need to resub, add to re-sub tracking data
-      if(options_.do_resub && boost::regex_search(topic, options_.resub_regex)) {
+      if(options_.do_resub && boost::regex_match(topic, options_.resub_regex)) {
         // We only need to add the topic name to the list once
         if (find(resub_topics_.begin(), resub_topics_.end(), topic) == resub_topics_.end()) {
           resub_topics_.push_back(topic);
@@ -397,7 +397,6 @@ void Recorder::startWriting() {
     // Subscribe to resub topics
     if (options_.do_resub) {
       foreach(string const& topic, resub_topics_)
-        if(shouldSubscribeToTopic(topic))
           resub_subscribers_.push_back(subscribe(topic));
     }
 
