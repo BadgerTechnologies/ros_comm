@@ -95,6 +95,7 @@ RecorderOptions::RecorderOptions() :
     record_all(false),
     regex(false),
     do_exclude(false),
+    do_resub(false),
     quiet(false),
     append_date(true),
     snapshot(false),
@@ -103,6 +104,7 @@ RecorderOptions::RecorderOptions() :
     prefix(""),
     name(""),
     exclude_regex(),
+    resub_regex(),
     buffer_size(1048576 * 256),
     chunk_size(1024 * 768),
     limit(0),
@@ -209,8 +211,6 @@ int Recorder::run() {
 }
 
 shared_ptr<ros::Subscriber> Recorder::subscribe(string const& topic) {
-    ROS_INFO("Subscribing to %s", topic.c_str());
-
     ros::NodeHandle nh;
     shared_ptr<int> count(boost::make_shared<int>(options_.limit));
     shared_ptr<ros::Subscriber> sub(boost::make_shared<ros::Subscriber>());
@@ -224,10 +224,22 @@ shared_ptr<ros::Subscriber> Recorder::subscribe(string const& topic) {
         const ros::MessageEvent<topic_tools::ShapeShifter const> &> >(
             boost::bind(&Recorder::doQueue, this, _1, topic, sub, count));
     ops.transport_hints = options_.transport_hints;
-    *sub = nh.subscribe(ops);
 
-    currently_recording_.insert(topic);
-    num_subscribers_++;
+    if(find(currently_recording_.begin(), currently_recording_.end(), topic) == currently_recording_.end()) {
+      ROS_INFO("Subscribing to %s", topic.c_str());
+      *sub = nh.subscribe(ops);
+      currently_recording_.insert(topic);
+      num_subscribers_++;
+      // If we need to resub, add to re-sub tracking data
+      if(options_.do_resub && boost::regex_match(topic, options_.resub_regex)) {
+        // We only need to add the topic name to the list once
+        if (find(resub_topics_.begin(), resub_topics_.end(), topic) == resub_topics_.end()) {
+          resub_topics_.push_back(topic);
+          // Handles initial condition
+          resub_subscribers_.push_back(sub);
+        }
+      }
+    }
 
     return sub;
 }
@@ -381,6 +393,12 @@ void Recorder::snapshotTrigger(std_msgs::Empty::ConstPtr trigger) {
 }
 
 void Recorder::startWriting() {
+    // Subscribe to resub topics
+    if (options_.do_resub) {
+      foreach(string const& topic, resub_topics_)
+          resub_subscribers_.push_back(subscribe(topic));
+    }
+
     bag_.setCompression(options_.compression);
     bag_.setChunkThreshold(options_.chunk_size);
 
@@ -398,6 +416,16 @@ void Recorder::startWriting() {
 
 void Recorder::stopWriting() {
     ROS_INFO("Closing %s.", target_filename_.c_str());
+    // Unsubscribe from resub topics
+    if (options_.do_resub) {
+      // Take care of metadata globals
+      foreach(boost::shared_ptr<ros::Subscriber> resub_sub, resub_subscribers_){
+        num_subscribers_--;
+        currently_recording_.erase(resub_sub->getTopic());
+        resub_sub->shutdown();
+      }
+      resub_subscribers_.clear();
+    }
     bag_.close();
     rename(write_filename_.c_str(), target_filename_.c_str());
 }
