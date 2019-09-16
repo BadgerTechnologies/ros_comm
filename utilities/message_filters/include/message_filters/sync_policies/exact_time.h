@@ -162,15 +162,14 @@ private:
     namespace mt = ros::message_traits;
 
     bool full = true;
-    full = full && (bool)boost::get<0>(t).getMessage();
-    full = full && (bool)boost::get<1>(t).getMessage();
-    full = full && (RealTypeCount::value > 2 ? (bool)boost::get<2>(t).getMessage() : true);
-    full = full && (RealTypeCount::value > 3 ? (bool)boost::get<3>(t).getMessage() : true);
-    full = full && (RealTypeCount::value > 4 ? (bool)boost::get<4>(t).getMessage() : true);
-    full = full && (RealTypeCount::value > 5 ? (bool)boost::get<5>(t).getMessage() : true);
-    full = full && (RealTypeCount::value > 6 ? (bool)boost::get<6>(t).getMessage() : true);
-    full = full && (RealTypeCount::value > 7 ? (bool)boost::get<7>(t).getMessage() : true);
-    full = full && (RealTypeCount::value > 8 ? (bool)boost::get<8>(t).getMessage() : true);
+    for (int i = 0; i < parent_->MAX_MESSAGES; ++i)
+    {
+      // Only count non-NullType messages
+      if (!mt::isNullType<typename mpl::at_c<Messages, i>::type>)
+      {
+        full = full && (bool)boost::get<i>(t).getMessage();
+      }
+    }
 
     if (full)
     {
