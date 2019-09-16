@@ -71,6 +71,18 @@ namespace ros
 {
 namespace message_traits
 {
+template<typename T>
+bool isNullType<T>
+{
+  return false;
+}
+
+template<>
+bool isNullType<message_filters::NullType>()
+{
+  return true;
+}
+
 template<>
 struct TimeStamp<message_filters::NullType>
 {
