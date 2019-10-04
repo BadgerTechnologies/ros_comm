@@ -50,6 +50,7 @@ from roslaunch.loader import convert_value
 import math
 
 _rospack = None
+_rosmaster = None
 
 class SubstitutionException(Exception):
     """
@@ -61,6 +62,14 @@ class ArgException(SubstitutionException):
     Exception for missing $(arg) values
     """
     pass
+
+def get_rosmaster():
+    global _rosmaster
+    if _rosmaster is not None:
+        return _rosmaster
+    import rosgraph
+    _rosmaster = rosgraph.Master(caller_id="roslaunch")
+    return _rosmaster
 
 def _eval_env(name):
     try:
@@ -94,6 +103,24 @@ def _optenv(resolved, a, args, context):
     if len(args) == 0:
         raise SubstitutionException("$(optenv var) must specify an environment variable [%s]"%a)
     return resolved.replace("$(%s)" % a, _eval_optenv(args[0], default=' '.join(args[1:])))
+
+def _eval_param(name):
+    print "_eval_param name:", name
+    try:
+        return get_rosmaster().getParam(name)
+    except rosgraph.MasterError as e:
+        raise SubstitutionException("Parameter %s is not set" % name)
+
+def _param(resolved, a, args, context):
+    """
+    process $(optenv) arg
+    @return: updated resolved argument
+    @rtype: str
+    @raise SubstitutionException: if arg invalidly specified
+    """
+    if len(args) == 0:
+        raise SubstitutionException("$(param name) must specify the name of a parameter [%s]"%a)
+    return resolved.replace("$(%s)" % a, _eval_param(args[0]))
 
 def _eval_anon(id, anons):
     if id in anons:
@@ -290,7 +317,8 @@ _eval_dict={
     '__builtins__': {k: __builtins__[k] for k in ['list', 'dict', 'map', 'str', 'float', 'int']},
     'env': _eval_env,
     'optenv': _eval_optenv,
-    'find': _eval_find
+    'find': _eval_find,
+    'param': _eval_param,
 }
 # also define all math symbols and functions
 _eval_dict.update(math.__dict__)
@@ -307,6 +335,7 @@ class _DictWrapper(object):
             return convert_value(self._args[key], 'auto')
 
 def _eval(s, context):
+    print "In _eval"
     if 'anon' not in context:
         context['anon'] = {}
     if 'arg' not in context:
@@ -361,6 +390,7 @@ def resolve_args(arg_str, context=None, resolve_anon=True):
         'optenv': _optenv,
         'anon': _anon,
         'arg': _arg,
+        'param': _param,
     }
     resolved = _resolve_args(arg_str, context, resolve_anon, commands)
     # then resolve 'find' as it requires the subsequent path to be expanded already
@@ -371,7 +401,7 @@ def resolve_args(arg_str, context=None, resolve_anon=True):
     return resolved
 
 def _resolve_args(arg_str, context, resolve_anon, commands):
-    valid = ['find', 'env', 'optenv', 'anon', 'arg']
+    valid = ['find', 'env', 'optenv', 'anon', 'arg', 'eval', 'param']
     resolved = arg_str
     for a in _collect_args(arg_str):
         splits = [s for s in a.split(' ') if s]
