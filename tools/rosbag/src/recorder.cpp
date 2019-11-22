@@ -225,26 +225,29 @@ shared_ptr<ros::Subscriber> Recorder::subscribe(string const& topic) {
             boost::bind(&Recorder::doQueue, this, _1, topic, sub, count));
     ops.transport_hints = options_.transport_hints;
 
-    if(find(currently_recording_.begin(), currently_recording_.end(), topic) == currently_recording_.end()) {
+    // Be sure to synchronize access to subscription related book-keeping
+    boost::mutex::scoped_lock lock(subscribe_mutex_);
+    // There is a race while the lock is not held, so be sure to check
+    // that we aren't already recording to prevent double-subscriptions
+    if(currently_recording_.find(topic) == currently_recording_.end()) {
       ROS_INFO("Subscribing to %s", topic.c_str());
       *sub = nh.subscribe(ops);
       currently_recording_.insert(topic);
       num_subscribers_++;
       // If we need to resub, add to re-sub tracking data
       if(options_.do_resub && boost::regex_match(topic, options_.resub_regex)) {
-        // We only need to add the topic name to the list once
-        if (find(resub_topics_.begin(), resub_topics_.end(), topic) == resub_topics_.end()) {
-          resub_topics_.push_back(topic);
-          // Handles initial condition
-          resub_subscribers_.push_back(sub);
-        }
+        // Set only ever stores one entry, so just call insert
+        resub_topics_.insert(topic);
+        // Need to store the subscriber each time.
+        resub_subscribers_.push_back(sub);
       }
     }
 
     return sub;
 }
 
-bool Recorder::isSubscribed(string const& topic) const {
+bool Recorder::isSubscribed(string const& topic) {
+    boost::mutex::scoped_lock lock(subscribe_mutex_);
     return currently_recording_.find(topic) != currently_recording_.end();
 }
 
@@ -396,7 +399,7 @@ void Recorder::startWriting() {
     // Subscribe to resub topics
     if (options_.do_resub) {
       foreach(string const& topic, resub_topics_)
-          resub_subscribers_.push_back(subscribe(topic));
+          subscribe(topic);
     }
 
     bag_.setCompression(options_.compression);
@@ -418,7 +421,8 @@ void Recorder::stopWriting() {
     ROS_INFO("Closing %s.", target_filename_.c_str());
     // Unsubscribe from resub topics
     if (options_.do_resub) {
-      // Take care of metadata globals
+      // Take care of metadata globals, be sure to hold lock
+      boost::mutex::scoped_lock lock(subscribe_mutex_);
       foreach(boost::shared_ptr<ros::Subscriber> resub_sub, resub_subscribers_){
         num_subscribers_--;
         currently_recording_.erase(resub_sub->getTopic());

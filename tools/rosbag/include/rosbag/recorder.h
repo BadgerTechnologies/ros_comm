@@ -124,7 +124,7 @@ public:
 
     void doTrigger();
 
-    bool isSubscribed(std::string const& topic) const;
+    bool isSubscribed(std::string const& topic);
 
     boost::shared_ptr<ros::Subscriber> subscribe(std::string const& topic);
 
@@ -165,9 +165,10 @@ private:
     std::string                   write_filename_;
     std::list<std::string>        current_files_;
 
+    boost::mutex                  subscribe_mutex_;      //!< mutex for subscription book-keeping
     std::set<std::string>         currently_recording_;  //!< set of currenly recording topics
     int                           num_subscribers_;      //!< used for book-keeping of our number of subscribers
-    std::vector<std::string>      resub_topics_;         //!< stores resub topic names (no need to ask master for full list again)
+    std::set<std::string>         resub_topics_;         //!< stores resub topic names (no need to ask master for full list again)
     std::vector<
       boost::shared_ptr<
         ros::Subscriber> >        resub_subscribers_;    //!< stores subscribers that need resets during splits
