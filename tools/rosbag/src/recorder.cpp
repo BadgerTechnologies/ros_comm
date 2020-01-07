@@ -530,11 +530,17 @@ void Recorder::doRecord() {
 #endif
             xt.nsec += 250000000;
             queue_condition_.timed_wait(lock, xt);
+            // It is unsafe to hold the queue lock during checkDuration as it
+            // may alter our subscriptions, and the subscription callbacks
+            // grab the queue lock
+            lock.unlock();
             if (checkDuration(ros::Time::now()))
             {
+                // Its OK to leave the lock unlocked, as we are finished.
                 finished = true;
                 break;
             }
+            lock.lock();
         }
         if (finished)
             break;
