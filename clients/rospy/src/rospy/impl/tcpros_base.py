@@ -316,11 +316,14 @@ class TCPROSServer(object):
         #and then use that to do the writing
         try:
             buff_size = 4096 # size of read buffer
+            timeout = sock.gettimeout()
+            sock.settimeout(30)
             if python3 == 0:
                 #initialize read_ros_handshake_header with BytesIO for Python 3 (instead of bytesarray())    
                 header = read_ros_handshake_header(sock, StringIO(), buff_size)
             else:
                 header = read_ros_handshake_header(sock, BytesIO(), buff_size)
+            sock.settimeout(timeout)
             
             if 'topic' in header:
                 err_msg = self.topic_connection_handler(sock, client_addr, header)
@@ -568,7 +571,7 @@ class TCPROSTransport(Transport):
             if not isinstance(e, socket.error):
                 # FATAL: no reconnection as error is unknown
                 self.close()
-            elif not isinstance(e, socket.timeout) and e.errno not in [100, 101, 102, 103, 110, 112, 113]:
+            elif not isinstance(e, socket.timeout) and e.errno not in [100, 101, 102, 103, 104, 110, 112, 113]:
                 # reconnect in follow cases, otherwise close the socket:
                 # 1. socket.timeout: on timeouts caused by delays on wireless links
                 # 2. ENETDOWN (100), ENETUNREACH (101), ENETRESET (102), ECONNABORTED (103):
@@ -576,9 +579,19 @@ class TCPROSTransport(Transport):
                 #     are thrown on interface shutdown e.g. on reconnection in LTE networks
                 # 3. ETIMEDOUT (110): same like 1. (for completeness)
                 # 4. EHOSTDOWN (112), EHOSTUNREACH (113): while network and/or DNS-server is not reachable
+                # 5. ECONNRESET (104): The connection was reset by the peer. Connections may be backed up we
+                #     just need to try again.
                 #
-                # no reconnection as error is not 1.-4.
+                # no reconnection as error is not 1.-5.
                 self.close()
+            else:
+                try:
+                    self.socket.shutdown(socket.SHUT_RDWR)
+                except:
+                    pass
+                finally:
+                    self.socket.close()
+                self.socket = None
             raise TransportInitError(str(e)) #re-raise i/o error
                 
     def _validate_header(self, header):
