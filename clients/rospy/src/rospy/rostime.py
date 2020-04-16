@@ -54,6 +54,7 @@ import genpy
 _rostime_initialized = False
 _rostime_current = None
 _rostime_cond = threading.Condition()
+_rostime_notify = []
 
 # subclass genpy to provide abstraction layer
 class Duration(genpy.Duration):
@@ -165,7 +166,21 @@ class Time(genpy.Time):
         @rtype: L{Time}
         """
         return cls.from_sec(float_secs)
-    
+
+class TimeNotify():
+    def __init__(self, time, cond):
+        self.time = time
+        self.cond = cond
+
+def _add_rostime_notify(notify):
+    _rostime_notify.append(notify)
+
+def _remove_rostime_notify(notify):
+    try:
+        _rostime_notify.remove(notify)
+    except:
+        pass
+
 def _set_rostime(t):
     """Callback to update ROS time from a ROS Topic"""
     if isinstance(t, genpy.Time):
@@ -174,6 +189,19 @@ def _set_rostime(t):
         raise ValueError("must be Time instance: %s"%t.__class__)
     global _rostime_current
     _rostime_current = t
+
+    notify_remove = []
+    for notify in _rostime_notify:
+        if notify.time <= t:
+            try:
+                notify.cond.acquire()
+                notify.cond.notifyAll()
+            finally:
+                notify.cond.release()
+                notify_remove.append(notify)
+    for notify in notify_remove:
+        _remove_rostime_notify(notify)
+
     try:
         _rostime_cond.acquire()
         _rostime_cond.notifyAll()

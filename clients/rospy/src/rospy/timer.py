@@ -150,13 +150,17 @@ def sleep(duration):
 
         sleep_t = initial_rostime + duration
 
+        notify = rospy.rostime.TimeNotify(sleep_t, threading.Condition())
+        rospy.rostime._add_rostime_notify(notify)
+
         # break loop if sleep_t is reached, time moves backwards, or
         # node is shutdown
         while rospy.rostime.get_rostime() < sleep_t and \
               rospy.rostime.get_rostime() >= initial_rostime and \
                   not rospy.core.is_shutdown():
-            with rostime_cond:
-                rostime_cond.wait(0.5)
+            with notify.cond:
+                notify.cond.wait(0.5)
+        rospy.rostime._remove_rostime_notify(notify)
 
         if rospy.rostime.get_rostime() < initial_rostime:
             time_jump = (initial_rostime - rospy.rostime.get_rostime()).to_sec()
