@@ -636,7 +636,7 @@ class MasterTestCase(ROSGraphTestCase):
         for args in errors:
             try:
                 apiError(master.addNode(*args))
-            except Exception, e:
+            except Exception as e:
                 self.fail("addNodeError case failed with args[%s] and exception [%s]"%(args, e))
         # - non-existent node implementation (this takes a while)
         apiFail(master.addNode('', '', 'testAddNodeFail1', pkg, 'notANode', TEST_MACHINE, 0))
