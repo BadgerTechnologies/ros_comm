@@ -193,7 +193,13 @@ void Connection::writeTransport()
 {
   boost::recursive_mutex::scoped_try_lock lock(write_mutex_);
 
-  if (!lock.owns_lock() || dropped_ || writing_)
+  if (!lock.owns_lock())
+  {
+    // If the lock was missed, enable write if necessary
+    writeTransportEnableHandler();
+    return;
+  }
+  if (dropped_ || writing_)
   {
     return;
   }
@@ -242,15 +248,23 @@ void Connection::writeTransport()
     }
   }
 
-  {
-    boost::mutex::scoped_lock lock(write_callback_mutex_);
-    if (!has_write_callback_)
-    {
-      transport_->disableWrite();
-    }
-  }
+  writeTransportEnableHandler();
 
   writing_ = false;
+}
+
+void Connection::writeTransportEnableHandler()
+{
+  boost::mutex::scoped_lock lock(write_callback_mutex_);
+  if (!has_write_callback_)
+  {
+    transport_->disableWrite();
+  }
+  else
+  {
+    // There is still more to write, wait for connection to be writable
+    transport_->enableWrite();
+  }
 }
 
 void Connection::onWriteable(const TransportPtr& transport)
@@ -305,13 +319,14 @@ void Connection::write(const boost::shared_array<uint8_t>& buffer, uint32_t size
     has_write_callback_ = 1;
   }
 
-  transport_->enableWrite();
-
-  if (immediate)
-  {
-    // write immediately if possible
-    writeTransport();
-  }
+  // Always write immediately.
+  // By not adding the connetion to the poll_set via enableWrite() the normal
+  // case for most messages and connections will be to immediately write
+  // without the need to signal the poll set, add the connection to the epoll,
+  // wait for writable, remove from the poll_set etc. If the write eventually
+  // would block, then we add the connection to the poll_set via enableWrite()
+  // after getting an incomplete write or an EAGAIN.
+  writeTransport();
 }
 
 void Connection::onDisconnect(const TransportPtr& transport)

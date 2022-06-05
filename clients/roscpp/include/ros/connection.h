@@ -205,6 +205,7 @@ private:
    * \brief Write data to our transport.  Also manages calling the write callback.
    */
   void writeTransport();
+  void writeTransportEnableHandler();
 
   /// Are we a server?  Servers wait for clients to send a header and then send a header in response.
   bool is_server_;
