@@ -131,7 +131,7 @@ def rosrun(package, test_name, test, sysargs=None):
         if arg.startswith(XML_OUTPUT_FLAG):
             result_file = arg[len(XML_OUTPUT_FLAG):]
     text_mode = '--text' in sysargs
-    coverage_mode = '--cov' in sysargs
+    coverage_mode = '--cov' in sysargs or os.getenv('ENABLE_ROSTEST_COVERAGE') == 'true'
     if coverage_mode:
         _start_coverage([package])
 

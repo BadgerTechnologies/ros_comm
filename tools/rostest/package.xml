@@ -24,6 +24,7 @@
   <run_depend>rosmaster</run_depend>
   <run_depend>rospy</run_depend>
   <run_depend>rosunit</run_depend>
+  <run_depend>python3-coverage</run_depend>
 
   <export>
     <rosdoc config="rosdoc.yaml"/>
