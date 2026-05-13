@@ -55,7 +55,7 @@ const M_string& getUnresolvedRemappings()
 
 bool isValidCharInName(char c)
 {
-  if (isalnum(c) || c == '/' || c == '_')
+  if (isalnum(c) || c == '/' || c == '_' || c == '-')
   {
     return true;
   }
